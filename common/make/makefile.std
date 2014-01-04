@@ -1,0 +1,98 @@
+MODULE_DIR := .
+
+include $(MODULE_DIR)/makefile_includes.make
+
+MODULE_INC := $(MODULE_DIR)/inc
+MODULE_SRC := $(MODULE_DIR)/src
+MODULE_OBJ := $(MODULE_DIR)/obj
+
+obj_dir := obj
+
+DEP_INCLUDES := $(foreach depModule, $(DEP_INC), $(addprefix -I, $(sort $(dir $(wildcard $(PLATFORM_ROOT)/$(depModule)/inc/*.h)))))
+
+SYS_INCLUDES := -I $(SDKSTAGE)/opt/vc/include \
+                -I $(SDKSTAGE)/opt/vc/include/interface/vcos/pthreads \
+				-I $(SDKSTAGE)/opt/vc/include/interface/vmcs_host/linux
+
+MODULE_INCLUDES := -I$(MODULE_INC)
+
+INCLUDES := $(MODULE_INCLUDES) \
+            $(DEP_INCLUDES) \
+            $(SYS_INCLUDES)
+
+module_dep_include_paths := $(foreach depModule, $(DEP_INC), $(sort $(dir $(wildcard $(PLATFORM_ROOT)/$(depModule)/inc/*.h))))
+module_dep_includes      := $(foreach depIncludePath, $(module_dep_include_paths), $(notdir $(wildcard $(depIncludePath)/*.h)))
+
+vpath %.c $(MODULE_SRC)
+vpath %.h $(MODULE_INC):$(foreach depIncludePath, $(module_dep_include_paths), $(addprefix :, $(depIncludePath)))
+
+temp_depend_objs := $(addprefix $(PLATFORM_ROOT)/, $(DEP_OBJ))
+
+depend_objs := $(foreach depModule, $(temp_depend_objs), $(strip $(wildcard $(depModule))))
+
+depend_objects := $(foreach depModule, $(depend_objs), $(depModule)/$(obj_dir)/module_$(notdir $(depModule)).o)
+
+# define modules sources (%.c)
+module_sources := $(notdir $(wildcard $(MODULE_SRC)/*.c))
+
+# define modules objects (%.o)
+module_objects := $(addprefix $(MODULE_OBJ)/, $(module_sources:.c=.o))
+
+# define module object (module_%.o)
+module_object := $(MODULE_OBJ)/module_$(notdir $(CURDIR)).o
+
+ifeq ($(strip $(wildcard $(MODULE_OBJ))),)
+    module_mkdirs := mkdir_obj
+endif
+
+app_executable := $(obj_dir)/app
+
+.PHONY : $(depend_objects)
+$(depend_objects) : 
+	make -C $(subst /$(obj_dir),,$(dir $@)) all
+
+LIBDIR := -L $(PLATFORM_ROOT)/libs/ilclient \
+          -L $(PLATFORM_ROOT)/libs/vgfont \
+          -L /opt/vc/lib/
+
+LDFLAGS := -l pthread -l rt -l bcm_host -l vcos -l openmaxil -l mmal -l bcm_host -l mmal_util -l mmal_core
+
+# CFLAGS +=-DSTANDALONE -D__STDC_CONSTANT_MACROS -D__STDC_LIMIT_MACROS -DTARGET_POSIX -D_LINUX -fPIC -DPIC -D_REENTRANT -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -U_FORTIFY_SOURCE -Wall -g -DHAVE_LIBOPENMAX=2 -DOMX -DOMX_SKIP64BIT -ftree-vectorize -pipe -DUSE_EXTERNAL_OMX -DHAVE_LIBBCM_HOST -DUSE_EXTERNAL_LIBBCM_HOST -DUSE_VCHIQ_ARM -Wno-psabi
+
+app : $(depend_objects)
+	gcc $^ $(LDFLAGS) $(LIBDIR) -o $@
+
+#clean : 
+#	rm -rf $(MODULE_OBJ)
+
+all : $(module_mkdirs) \
+      $(module_object)
+
+mkdir_obj : 
+	mkdir $(MODULE_OBJ)
+
+$(module_object) : $(module_objects) 
+	ld -r $^ -o $@
+
+$(MODULE_OBJ)/%.o : %.c $(module_dep_includes)
+	gcc -c $(INCLUDES) $< -o $@
+
+clobber_mod_files := $(module_object) \
+                     $(module_objects) \
+                     $(app_executable)
+
+clean: 
+	rm -f $(clean_mod_files)
+
+clobber : clobber_dependents
+	rm -f $(clobber_mod_files)
+
+clobber_dependent_cmd := $(foreach depModule, $(depend_objs), make -C $(depModule) clobber;)
+
+ifeq (${MAKELEVEL},0)
+clobber_dependents : 
+	$(clobber_dependent_cmd)
+else
+clobber_dependents : 
+endif
+
