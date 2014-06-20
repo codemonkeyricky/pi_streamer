@@ -7,5 +7,6 @@ Copyright 2014
     2. make app
 
 ### To run Pi Stream server:
-    1. ./app > /dev/null
+    1. cd target
+    2. ./app > /dev/null
 
